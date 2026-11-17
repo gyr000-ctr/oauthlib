@@ -27,11 +27,15 @@ class RevocationEndpoint(BaseEndpoint):
     valid_token_types = ('access_token', 'refresh_token')
     valid_request_methods = ('POST',)
 
-    def __init__(self, request_validator, supported_token_types=None):
+    def __init__(self, request_validator, supported_token_types=None,
+                 mtls_enabled=False, require_mtls=False):
         BaseEndpoint.__init__(self)
         self.request_validator = request_validator
         self.supported_token_types = (
             supported_token_types or self.valid_token_types)
+        # RFC 8705 mutual-TLS client authentication (section 2).
+        self.mtls_enabled = mtls_enabled
+        self.require_mtls = require_mtls
 
     @catch_errors_and_unavailability
     def create_revocation_response(self, uri, http_method='POST', body=None,

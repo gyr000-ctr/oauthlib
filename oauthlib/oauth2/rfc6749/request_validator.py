@@ -694,3 +694,87 @@ class RequestValidator:
 
         """
         return False
+
+    # RFC 8705 - OAuth 2.0 Mutual-TLS Client Authentication and
+    # Certificate-Bound Access Tokens.
+
+    def get_client_from_client_certificate(self, request, *args, **kwargs):
+        """Identify the client authenticated by the presented TLS certificate.
+
+        Optional. Used by the RFC 8705 mutual-TLS authentication path when the
+        request did not identify the client through another means (no
+        ``client_id`` form parameter). Implementations typically map the
+        certificate subject DN/SAN or thumbprint to a registered client.
+
+        On success, set ``request.client`` to a client object exposing a
+        ``client_id`` attribute and return it. Return ``None`` (or a falsy
+        value) when no client matches the certificate.
+
+        :param request: OAuthlib request; ``request.client_cert`` (or one of
+            the other attribute/header names supported by
+            ``oauthlib.oauth2.rfc8705``) holds the presented certificate.
+        :type request: oauthlib.common.Request
+        :rtype: client object or None
+
+        Method is used by:
+            - Token Endpoint (all confidential-client grants)
+            - Introspect Endpoint
+            - Revocation Endpoint
+        """
+        return None
+
+    def get_client_certificate_registration(self, client_id, request,
+                                            *args, **kwargs):
+        """Return the registered certificate information for a client.
+
+        Required to enable RFC 8705 mutual-TLS authentication. Return a
+        dictionary describing the certificate(s) registered for
+        *client_id*, using any combination of the following keys:
+
+        - ``thumbprint`` (or ``x5t#S256``): the base64url-encoded SHA-256
+          hash of the DER-encoded registered certificate. When present it
+          is compared directly against the presented certificate
+          (RFC 8705 section 2.1.1, self-signed / public key clients).
+        - ``subject_dn`` (or ``dn``): a dict such as
+          ``{'CN': 'client.example', 'O': 'Example'}`` or an RFC 4514
+          string, compared against the presented certificate subject.
+        - ``san`` (or ``subject_alt_names``): a list of
+          ``(type, value)`` tuples (``('DNS', 'client.example')``,
+          ``('IP Address', '203.0.113.7')``, ``('email', ...)``,
+          ``('URI', ...)``) or bare DNS-name strings.
+
+        Returning a bare string is treated as a registered thumbprint.
+        Return ``None`` when the client has no certificate registration;
+        the mTLS layer then raises a distinct "missing registration"
+        error rather than a generic 401.
+
+        :param client_id: Unicode client identifier.
+        :param request: OAuthlib request.
+        :type request: oauthlib.common.Request
+        :rtype: dict, str or None
+
+        Method is used by:
+            - Token Endpoint (all confidential-client grants)
+            - Introspect Endpoint
+            - Revocation Endpoint
+        """
+        return None
+
+    def get_token_certificate_binding(self, token, request, *args, **kwargs):
+        """Return the ``x5t#S256`` value bound to an access token.
+
+        Optional. Used when a protected resource validates a
+        certificate-bound access token (RFC 8705 section 3) and the
+        binding is not already exposed as ``request.token_claims['cnf']``
+        or ``request.cnf`` by ``validate_bearer_token``.
+
+        :param token: Unicode bearer token presented on the request.
+        :param request: OAuthlib request.
+        :type request: oauthlib.common.Request
+        :rtype: base64url thumbprint string or None when the token is
+            not certificate-bound.
+
+        Method is used by:
+            - Resource Endpoint (CertificateBoundBearerToken)
+        """
+        return None

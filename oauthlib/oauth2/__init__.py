@@ -70,3 +70,15 @@ from .rfc8628.clients import DeviceClient
 from .rfc8628.endpoints import DeviceApplicationServer, DeviceAuthorizationEndpoint
 from .rfc8628.errors import AccessDenied, AuthorizationPendingError, ExpiredTokenError, SlowDownError
 from .rfc8628.grant_types import DeviceCodeGrant
+from .rfc8705 import (
+    CertificateBoundBearerToken,
+    InvalidClientCertificateError,
+    InvalidTokenCertificateBindingError,
+    MismatchingCertificateSubjectError,
+    MismatchingCertificateThumbprintError,
+    MissingClientCertificateError,
+    MissingClientCertificateRegistrationError,
+    MtlsEndpointMixin,
+    UntrustedClientCertificateError,
+    calculate_x5t_s256,
+)

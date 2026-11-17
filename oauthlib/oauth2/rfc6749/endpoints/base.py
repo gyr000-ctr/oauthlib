@@ -8,6 +8,7 @@ for consuming and providing OAuth 2.0 RFC6749.
 import functools
 import logging
 
+from ...rfc8705.mtls import MtlsEndpointMixin
 from ..errors import (
     FatalClientError, InvalidClientError, InvalidRequestError, OAuth2Error,
     ServerError, TemporarilyUnavailableError, UnsupportedTokenTypeError, UnsupportedContentTypeError,
@@ -16,12 +17,15 @@ from ..errors import (
 log = logging.getLogger(__name__)
 
 
-class BaseEndpoint:
+class BaseEndpoint(MtlsEndpointMixin):
 
     def __init__(self):
         self._available = True
         self._catch_errors = False
         self._valid_request_methods = None
+        # RFC 8705 mutual-TLS support, disabled by default.
+        self.mtls_enabled = False
+        self.require_mtls = False
 
     @property
     def valid_request_methods(self):
@@ -57,6 +61,15 @@ class BaseEndpoint:
                                       description='Missing token parameter.')
     def _raise_on_invalid_client(self, request):
         """Raise on failed client authentication."""
+        # RFC 8705 mutual-TLS client authentication. When the endpoint is
+        # configured to require mTLS (or the request arrived on the mTLS
+        # endpoint alias and carries a client certificate), certificate
+        # validation replaces secret-based authentication while preserving
+        # the basic/post paths untouched otherwise.
+        if self._mtls_requested(request):
+            self._authenticate_mtls(request)
+            return
+
         if self.request_validator.client_authentication_required(request):
             if not self.request_validator.authenticate_client(request):
                 log.debug('Client authentication failed, %r.', request)
@@ -64,6 +77,24 @@ class BaseEndpoint:
         elif not self.request_validator.authenticate_client_id(request.client_id, request):
             log.debug('Client authentication failed, %r.', request)
             raise InvalidClientError(request=request)
+
+    def _mtls_requested(self, request):
+        """Determine whether this request should use mTLS authentication.
+
+        Enabled either explicitly on the endpoint (``require_mtls=True``
+        or an mTLS alias marker set by the framework) or implicitly when
+        a client certificate is presented on an endpoint that accepts
+        mTLS authentication.
+        """
+        if not self.mtls_enabled:
+            return False
+        if self.require_mtls:
+            return True
+        return self.get_client_certificate(request) is not None
+
+    def _authenticate_mtls(self, request):
+        """RFC 8705 mutual-TLS authentication entry point."""
+        self.authenticate_mtls_client(request)
 
     def _raise_on_unsupported_token(self, request):
         """Raise on unsupported tokens."""

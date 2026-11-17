@@ -19,6 +19,7 @@ client attempts to access the user resources on their behalf.
     introspect
     token
     metadata
+    mtls
     revocation
     resource
 

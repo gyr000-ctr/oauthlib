@@ -23,3 +23,6 @@ setting ``OAUTHLIB_STRICT_TOKEN_TYPE`` in the environment.
     bearer
     saml
     mac
+
+Certificate-bound access tokens (RFC 8705) are described in
+:doc:`../endpoints/mtls`.

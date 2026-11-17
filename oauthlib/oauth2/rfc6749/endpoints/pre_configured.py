@@ -22,6 +22,14 @@ from .token import TokenEndpoint
 from oauthlib.oauth2.rfc8628.grant_types import DeviceCodeGrant
 
 
+def _mtls_kwargs(kwargs):
+    """Extract RFC 8705 mutual-TLS flags from server-level kwargs."""
+    return {
+        'mtls_enabled': kwargs.get('mtls_enabled', False),
+        'require_mtls': kwargs.get('require_mtls', False),
+    }
+
+
 class Server(
     AuthorizationEndpoint, IntrospectEndpoint, TokenEndpoint, ResourceEndpoint, RevocationEndpoint
 ):
@@ -49,14 +57,22 @@ class Server(
         :param token_generator: A function to generate a token from a request.
         :param refresh_token_generator: A function to generate a token from a
                                         request for the refresh token.
+        :param mtls_enabled: Enable RFC 8705 mutual-TLS client authentication
+                             on the token, introspection and revocation
+                             endpoints. Requests presenting a client
+                             certificate are authenticated against the
+                             client's registered certificate information.
+        :param require_mtls: Reject every client-authenticated request that
+                             does not present a client certificate.
         :param kwargs: Extra parameters to pass to authorization-,
                        token-, resource-, and revocation-endpoint constructors.
         """
-        self.auth_grant = AuthorizationCodeGrant(request_validator)
-        self.implicit_grant = ImplicitGrant(request_validator)
-        self.password_grant = ResourceOwnerPasswordCredentialsGrant(request_validator)
-        self.credentials_grant = ClientCredentialsGrant(request_validator)
-        self.refresh_grant = RefreshTokenGrant(request_validator)
+        mtls = _mtls_kwargs(kwargs)
+        self.auth_grant = AuthorizationCodeGrant(request_validator, **mtls)
+        self.implicit_grant = ImplicitGrant(request_validator, **mtls)
+        self.password_grant = ResourceOwnerPasswordCredentialsGrant(request_validator, **mtls)
+        self.credentials_grant = ClientCredentialsGrant(request_validator, **mtls)
+        self.refresh_grant = RefreshTokenGrant(request_validator, **mtls)
         self.device_code_grant = DeviceCodeGrant(request_validator, **kwargs)
 
         self.bearer = BearerToken(
@@ -85,12 +101,13 @@ class Server(
                 "urn:ietf:params:oauth:grant-type:device_code": self.device_code_grant,
             },
             default_token_type=self.bearer,
+            **mtls,
         )
         ResourceEndpoint.__init__(
             self, default_token="Bearer", token_types={"Bearer": self.bearer}
         )
-        RevocationEndpoint.__init__(self, request_validator)
-        IntrospectEndpoint.__init__(self, request_validator)
+        RevocationEndpoint.__init__(self, request_validator, **mtls)
+        IntrospectEndpoint.__init__(self, request_validator, **mtls)
 
 
 class WebApplicationServer(
@@ -116,11 +133,15 @@ class WebApplicationServer(
         :param token_generator: A function to generate a token from a request.
         :param refresh_token_generator: A function to generate a token from a
                                         request for the refresh token.
+        :param mtls_enabled: Enable RFC 8705 mutual-TLS client authentication.
+        :param require_mtls: Reject client-authenticated requests without a
+                             client certificate.
         :param kwargs: Extra parameters to pass to authorization-,
                        token-, resource-, and revocation-endpoint constructors.
         """
-        self.auth_grant = AuthorizationCodeGrant(request_validator)
-        self.refresh_grant = RefreshTokenGrant(request_validator)
+        mtls = _mtls_kwargs(kwargs)
+        self.auth_grant = AuthorizationCodeGrant(request_validator, **mtls)
+        self.refresh_grant = RefreshTokenGrant(request_validator, **mtls)
         self.bearer = BearerToken(
             request_validator, token_generator, token_expires_in, refresh_token_generator
         )
@@ -138,12 +159,13 @@ class WebApplicationServer(
                 "refresh_token": self.refresh_grant,
             },
             default_token_type=self.bearer,
+            **mtls,
         )
         ResourceEndpoint.__init__(
             self, default_token="Bearer", token_types={"Bearer": self.bearer}
         )
-        RevocationEndpoint.__init__(self, request_validator)
-        IntrospectEndpoint.__init__(self, request_validator)
+        RevocationEndpoint.__init__(self, request_validator, **mtls)
+        IntrospectEndpoint.__init__(self, request_validator, **mtls)
 
 
 class MobileApplicationServer(
@@ -172,7 +194,8 @@ class MobileApplicationServer(
         :param kwargs: Extra parameters to pass to authorization-,
                        token-, resource-, and revocation-endpoint constructors.
         """
-        self.implicit_grant = ImplicitGrant(request_validator)
+        mtls = _mtls_kwargs(kwargs)
+        self.implicit_grant = ImplicitGrant(request_validator, **mtls)
         self.bearer = BearerToken(
             request_validator, token_generator, token_expires_in, refresh_token_generator
         )
@@ -186,10 +209,10 @@ class MobileApplicationServer(
             self, default_token="Bearer", token_types={"Bearer": self.bearer}
         )
         RevocationEndpoint.__init__(
-            self, request_validator, supported_token_types=["access_token"]
+            self, request_validator, supported_token_types=["access_token"], **mtls
         )
         IntrospectEndpoint.__init__(
-            self, request_validator, supported_token_types=["access_token"]
+            self, request_validator, supported_token_types=["access_token"], **mtls
         )
 
 
@@ -219,8 +242,9 @@ class LegacyApplicationServer(
         :param kwargs: Extra parameters to pass to authorization-,
                        token-, resource-, and revocation-endpoint constructors.
         """
-        self.password_grant = ResourceOwnerPasswordCredentialsGrant(request_validator)
-        self.refresh_grant = RefreshTokenGrant(request_validator)
+        mtls = _mtls_kwargs(kwargs)
+        self.password_grant = ResourceOwnerPasswordCredentialsGrant(request_validator, **mtls)
+        self.refresh_grant = RefreshTokenGrant(request_validator, **mtls)
         self.bearer = BearerToken(
             request_validator, token_generator, token_expires_in, refresh_token_generator
         )
@@ -232,12 +256,13 @@ class LegacyApplicationServer(
                 "refresh_token": self.refresh_grant,
             },
             default_token_type=self.bearer,
+            **mtls,
         )
         ResourceEndpoint.__init__(
             self, default_token="Bearer", token_types={"Bearer": self.bearer}
         )
-        RevocationEndpoint.__init__(self, request_validator)
-        IntrospectEndpoint.__init__(self, request_validator)
+        RevocationEndpoint.__init__(self, request_validator, **mtls)
+        IntrospectEndpoint.__init__(self, request_validator, **mtls)
 
 
 class BackendApplicationServer(
@@ -266,7 +291,8 @@ class BackendApplicationServer(
         :param kwargs: Extra parameters to pass to authorization-,
                        token-, resource-, and revocation-endpoint constructors.
         """
-        self.credentials_grant = ClientCredentialsGrant(request_validator)
+        mtls = _mtls_kwargs(kwargs)
+        self.credentials_grant = ClientCredentialsGrant(request_validator, **mtls)
         self.bearer = BearerToken(
             request_validator, token_generator, token_expires_in, refresh_token_generator
         )
@@ -275,13 +301,14 @@ class BackendApplicationServer(
             default_grant_type="client_credentials",
             grant_types={"client_credentials": self.credentials_grant},
             default_token_type=self.bearer,
+            **mtls,
         )
         ResourceEndpoint.__init__(
             self, default_token="Bearer", token_types={"Bearer": self.bearer}
         )
         RevocationEndpoint.__init__(
-            self, request_validator, supported_token_types=["access_token"]
+            self, request_validator, supported_token_types=["access_token"], **mtls
         )
         IntrospectEndpoint.__init__(
-            self, request_validator, supported_token_types=["access_token"]
+            self, request_validator, supported_token_types=["access_token"], **mtls
         )

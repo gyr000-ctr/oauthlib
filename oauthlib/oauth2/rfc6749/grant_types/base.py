@@ -10,6 +10,7 @@ from oauthlib.common import add_params_to_uri
 from oauthlib.oauth2.rfc6749 import errors, utils
 from oauthlib.uri_validate import is_absolute_uri
 
+from ...rfc8705.mtls import MtlsEndpointMixin
 from ..request_validator import RequestValidator
 from ..utils import is_secure_transport
 
@@ -104,7 +105,7 @@ class ValidatorsContainer:
         return chain(self.post_auth, self.post_token)
 
 
-class GrantTypeBase:
+class GrantTypeBase(MtlsEndpointMixin):
     error_uri = None
     request_validator = None
     default_response_mode = 'fragment'
@@ -118,6 +119,13 @@ class GrantTypeBase:
         # Transforms class variables into instance variables:
         self.response_types = self.response_types
         self.refresh_token = self.refresh_token
+        # RFC 8705 mutual-TLS client authentication. When enabled, a
+        # request carrying a client certificate (or any request on a
+        # require_mtls endpoint alias) is authenticated against the
+        # client's registered certificate information instead of its
+        # client_secret; basic/post authentication is untouched otherwise.
+        self.mtls_enabled = kwargs.pop('mtls_enabled', False)
+        self.require_mtls = kwargs.pop('require_mtls', False)
         self._setup_custom_validators(kwargs)
         self._code_modifiers = []
         self._token_modifiers = []
@@ -208,17 +216,41 @@ class GrantTypeBase:
                                                       request.scopes, request.client, request):
             raise errors.InvalidScopeError(request=request)
 
+    def _mtls_requested(self, request):
+        """Whether this token request should authenticate via mTLS.
+
+        RFC 8705 section 2.1: mTLS replaces the client_secret when the
+        endpoint is mTLS-enabled and either a certificate was presented
+        or the alias was configured to require one.
+        """
+        if not self.mtls_enabled:
+            return False
+        if self.require_mtls:
+            return True
+        return self.get_client_certificate(request) is not None
+
     def validate_client_confidential(self, request):
         # If the client type is confidential or the client was issued client
         # credentials (or assigned other authentication requirements), the
         # client MUST authenticate with the authorization server as described
         # in Section 3.2.1.
         # https://tools.ietf.org/html/rfc6749#section-3.2.1
+        if self._mtls_requested(request):
+            # RFC 8705 section 2: mutual-TLS replaces client_secret
+            # authentication. Distinct mtls errors are raised by the mixin
+            # instead of a generic invalid_client 401.
+            self.authenticate_mtls_client(request)
+            self._validate_authenticated_client(request)
+            return
+
         log.debug('Authenticating confidential client, %r.', request)
         if not self.request_validator.authenticate_client(request):
             log.debug('Client authentication failed, %r.', request)
             raise errors.InvalidClientError(request=request)
 
+        self._validate_authenticated_client(request)
+
+    def _validate_authenticated_client(self, request):
         if request.client is None or \
             not hasattr(request.client, 'client_id'):
             raise NotImplementedError('Authenticate client must set the '

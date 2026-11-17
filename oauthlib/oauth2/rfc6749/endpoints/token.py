@@ -60,11 +60,15 @@ class TokenEndpoint(BaseEndpoint):
 
     valid_request_methods = ('POST',)
 
-    def __init__(self, default_grant_type, default_token_type, grant_types):
+    def __init__(self, default_grant_type, default_token_type, grant_types,
+                 mtls_enabled=False, require_mtls=False):
         BaseEndpoint.__init__(self)
         self._grant_types = grant_types
         self._default_token_type = default_token_type
         self._default_grant_type = default_grant_type
+        # RFC 8705 mutual-TLS client authentication (section 2).
+        self.mtls_enabled = mtls_enabled
+        self.require_mtls = require_mtls
 
     @property
     def grant_types(self):

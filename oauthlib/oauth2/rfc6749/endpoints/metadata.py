@@ -92,7 +92,12 @@ class MetadataEndpoint(BaseEndpoint):
         definition.
         """
         self._grant_types.extend(endpoint._grant_types.keys())
-        claims.setdefault("token_endpoint_auth_methods_supported", ["client_secret_post", "client_secret_basic"])
+        auth_methods = ["client_secret_post", "client_secret_basic"]
+        if getattr(endpoint, 'mtls_enabled', False):
+            # RFC 8705 section 6: tls_client_auth is advertised whenever
+            # mutual-TLS client authentication is enabled.
+            auth_methods.append("tls_client_auth")
+        claims.setdefault("token_endpoint_auth_methods_supported", auth_methods)
 
         self.validate_metadata(claims, "token_endpoint_auth_methods_supported", is_list=True)
         self.validate_metadata(claims, "token_endpoint_auth_signing_alg_values_supported", is_list=True)
@@ -122,16 +127,22 @@ class MetadataEndpoint(BaseEndpoint):
         self.validate_metadata(claims, "authorization_endpoint", is_required=True, is_url=True)
 
     def validate_metadata_revocation(self, claims, endpoint):
+        auth_methods = ["client_secret_post", "client_secret_basic"]
+        if getattr(endpoint, 'mtls_enabled', False):
+            auth_methods.append("tls_client_auth")
         claims.setdefault("revocation_endpoint_auth_methods_supported",
-                          ["client_secret_post", "client_secret_basic"])
+                          auth_methods)
 
         self.validate_metadata(claims, "revocation_endpoint_auth_methods_supported", is_list=True)
         self.validate_metadata(claims, "revocation_endpoint_auth_signing_alg_values_supported", is_list=True)
         self.validate_metadata(claims, "revocation_endpoint", is_required=True, is_url=True)
 
     def validate_metadata_introspection(self, claims, endpoint):
+        auth_methods = ["client_secret_post", "client_secret_basic"]
+        if getattr(endpoint, 'mtls_enabled', False):
+            auth_methods.append("tls_client_auth")
         claims.setdefault("introspection_endpoint_auth_methods_supported",
-                          ["client_secret_post", "client_secret_basic"])
+                          auth_methods)
 
         self.validate_metadata(claims, "introspection_endpoint_auth_methods_supported", is_list=True)
         self.validate_metadata(claims, "introspection_endpoint_auth_signing_alg_values_supported", is_list=True)
@@ -235,4 +246,43 @@ class MetadataEndpoint(BaseEndpoint):
         # allowed in the current provider implementation.
         claims.setdefault("grant_types_supported", self._grant_types)
         self.validate_metadata(claims, "grant_types_supported", is_list=True)
+
+        # RFC 8705 section 6: advertise the mTLS endpoint aliases. The
+        # nested object mirrors the regular endpoint claims and may also
+        # carry per-alias auth method lists.
+        if "mtls_endpoint_aliases" in claims:
+            aliases = claims["mtls_endpoint_aliases"]
+            if not isinstance(aliases, dict):
+                raise ValueError(
+                    "mtls_endpoint_aliases must be a JSON object")
+            for alias_claim in (
+                "token_endpoint",
+                "revocation_endpoint",
+                "introspection_endpoint",
+                "device_authorization_endpoint",
+                "registration_endpoint",
+                "authorization_endpoint",
+            ):
+                if alias_claim in aliases:
+                    self.validate_metadata(
+                        aliases, alias_claim, is_url=True)
+            # Mirror the auth-method lists, adding tls_client_auth so a
+            # client discovering the alias knows mTLS is supported.
+            alias_auth_methods = {
+                "token_endpoint":
+                    "token_endpoint_auth_methods_supported",
+                "revocation_endpoint":
+                    "revocation_endpoint_auth_methods_supported",
+                "introspection_endpoint":
+                    "introspection_endpoint_auth_methods_supported",
+            }
+            for endpoint_claim, methods_claim in alias_auth_methods.items():
+                if endpoint_claim not in aliases \
+                        or methods_claim in aliases:
+                    continue
+                methods = list(claims.get(methods_claim, [
+                    "client_secret_basic", "client_secret_post"]))
+                if "tls_client_auth" not in methods:
+                    methods.append("tls_client_auth")
+                aliases[methods_claim] = methods
         return claims
