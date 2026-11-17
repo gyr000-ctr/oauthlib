@@ -40,6 +40,20 @@ OAuth2.0 Provider:
   validation when omitted, and implicit grant errors use the query when the
   ``response_mode`` is ``query``, requested or the grant's default, instead
   of always using the fragment.
+* RFC 9449 DPoP (Demonstrating Proof of Possession) is implemented in the new
+  ``oauthlib.oauth2.rfc9449`` package. Clients can generate proof JWTs bound
+  to the HTTP method and URL (``htm``/``htu``) with a ``jwk`` header, ``jti``
+  and ``iat`` (``generate_dpop_key``, ``create_dpop_proof``). Servers opt in
+  with ``enable_dpop(server)``: token-endpoint proofs are validated for
+  signature, method/URL binding, ``iat`` window, optional nonce and ``jti``
+  replay, and DPoP-bound tokens are issued with ``token_type=DPoP`` and a
+  ``cnf.jkt`` confirmation claim equal to the proof key's RFC 7638
+  thumbprint. Resource requests require an ``ath``-bound proof matching the
+  token's ``cnf``. The failure modes missing proof, invalid proof, nonce
+  challenge and replay use distinguishable error classes. Plain Bearer and
+  ``client_secret`` flows are unchanged. DPoP uses the optional
+  ``signedtoken`` (PyJWT/cryptography) dependencies, imported lazily; no new
+  runtime dependency is required when DPoP is not used.
 
 Misc:
 * #794: Recommend Authorization Code + PKCE instead of Implicit Grant for public clients.

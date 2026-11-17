@@ -501,6 +501,13 @@ class Request:
             "user": None,
             "token_type_hint": None,
 
+            # RFC 9449 DPoP: validated proof public JWK, its RFC 7638
+            # thumbprint (the value stored in the token's cnf.jkt claim) and
+            # the decoded proof claims. Populated by the DPoP proof validator.
+            "dpop_jwk": None,
+            "dpop_jkt": None,
+            "dpop_claims": None,
+
             # OpenID Connect
             "response_mode": None,
             "nonce": None,

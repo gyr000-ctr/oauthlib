@@ -134,6 +134,23 @@ class Client:
         self.code = None
         self.expires_in = None
         self._expires_at = None
+
+        # RFC 9449 DPoP. When a private key is provided the client attaches
+        # DPoP proofs to token requests and presents DPoP-bound access
+        # tokens with a per-request proof. Without a key all behaviour is
+        # identical to a plain Bearer client. These two options are taken
+        # from kwargs (rather than named parameters) to keep the public
+        # constructor signature stable and backwards compatible.
+        dpop_private_key = kwargs.get('dpop_private_key')
+        dpop_algorithm = kwargs.get('dpop_algorithm', 'ES256')
+        self.dpop_private_key = dpop_private_key
+        self.dpop_algorithm = dpop_algorithm
+        self.dpop_nonce = None
+        self.dpop_public_jwk = None
+        if dpop_private_key is not None:
+            from oauthlib.oauth2.rfc9449 import public_jwk_from_private_key  # noqa: PLC0415
+
+            self.dpop_public_jwk = public_jwk_from_private_key(dpop_private_key)
         self.populate_token_attributes(self.token)
 
     @property
@@ -149,7 +166,8 @@ class Client:
         """
         return {
             'Bearer': self._add_bearer_token,
-            'MAC': self._add_mac_token
+            'MAC': self._add_mac_token,
+            'DPoP': self._add_dpop_token,
         }
 
     def prepare_request_uri(self, *args, **kwargs):
@@ -288,7 +306,7 @@ class Client:
         body = self.prepare_request_body(body=body,
                                          redirect_uri=self.redirect_url, **kwargs)
 
-        return token_url, FORM_ENC_HEADERS, body
+        return token_url, self._dpop_headers(token_url), body
 
     def prepare_refresh_token_request(self, token_url, refresh_token=None,
                                       body='', scope=None, **kwargs):
@@ -317,7 +335,7 @@ class Client:
         scope = self.scope if scope is None else scope
         body = self.prepare_refresh_body(body=body,
                                          refresh_token=refresh_token, scope=scope, **kwargs)
-        return token_url, FORM_ENC_HEADERS, body
+        return token_url, self._dpop_headers(token_url), body
 
     def prepare_token_revocation_request(self, revocation_url, token,
                                          token_type_hint="access_token", body='', **kwargs):
@@ -541,6 +559,67 @@ class Client:
                                             self.mac_key, http_method, headers=headers, body=body, ext=ext,
                                             hash_algorithm=self.mac_algorithm, **kwargs)
         return uri, headers, body
+
+    def prepare_dpop_proof(self, uri, http_method='POST', nonce=None,
+                           access_token=None):
+        """Create a DPoP proof JWT bound to *http_method* and *uri*.
+
+        Requires a DPoP private key to have been supplied when constructing
+        the client. The most recent server-issued nonce
+        (:attr:`dpop_nonce`) is included automatically unless *nonce* is
+        given explicitly.
+
+        :param uri: Full request URL (the token endpoint or a protected
+            resource).
+        :param http_method: HTTP method the proof is bound to.
+        :param nonce: Explicit DPoP nonce, overriding :attr:`dpop_nonce`.
+        :param access_token: Access token string; when given the proof gets
+            the ``ath`` hash claim binding it to that token (used for
+            protected-resource requests).
+        :rtype: str
+        """
+        if self.dpop_private_key is None:
+            raise ValueError("DPoP is not enabled on this client: pass "
+                             "dpop_private_key when constructing the client.")
+        from oauthlib.oauth2.rfc9449 import create_dpop_proof  # noqa: PLC0415
+
+        return create_dpop_proof(
+            self.dpop_private_key, http_method, uri,
+            algorithm=self.dpop_algorithm,
+            nonce=nonce if nonce is not None else self.dpop_nonce,
+            access_token=access_token,
+        )
+
+    def _dpop_headers(self, uri, http_method='POST'):
+        """Build request headers, adding a DPoP proof when a key is set."""
+        headers = dict(FORM_ENC_HEADERS)
+        if self.dpop_private_key is not None:
+            headers['DPoP'] = self.prepare_dpop_proof(uri, http_method)
+        return headers
+
+    def _add_dpop_token(self, uri, http_method='GET', body=None,
+                        headers=None, token_placement=AUTH_HEADER, **kwargs):
+        """Present a DPoP-bound access token with a fresh proof (RFC 9449 7)."""
+        if token_placement != AUTH_HEADER:
+            raise ValueError("DPoP tokens can only be used in the "
+                             "Authorization header.")
+        if self.dpop_private_key is None:
+            raise ValueError("DPoP is not enabled on this client: pass "
+                             "dpop_private_key when constructing the client.")
+        headers = dict(headers or {})
+        proof = self.prepare_dpop_proof(
+            uri, http_method, access_token=self.access_token)
+        headers['Authorization'] = 'DPoP %s' % self.access_token
+        headers['DPoP'] = proof
+        return uri, headers, body
+
+    def update_dpop_nonce(self, nonce):
+        """Store the nonce from a ``DPoP-Nonce`` response header.
+
+        Call this after receiving a ``use_dpop_nonce`` error so that the next
+        :meth:`prepare_token_request` / :meth:`add_token` retry includes it.
+        """
+        self.dpop_nonce = nonce
 
     def _populate_attributes(self, response):
         warnings.warn("Please switch to the public method "

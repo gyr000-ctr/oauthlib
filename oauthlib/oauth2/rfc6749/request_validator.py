@@ -669,6 +669,35 @@ class RequestValidator:
         """
         raise NotImplementedError('Subclasses must implement this method.')
 
+    def validate_dpop_token(self, token, dpop_jkt, scopes, request,
+                            *args, **kwargs):
+        """Ensure the DPoP-bound access token is valid, authorized for the
+        requested scopes and bound to the public key of the DPoP proof that
+        accompanied the request.
+
+        Implementations MUST:
+
+            - verify that *token* is an active, non-revoked DPoP access
+              token (as with :meth:`validate_bearer_token`);
+            - verify that the token's stored ``cnf.jkt`` confirmation claim
+              equals *dpop_jkt*, the RFC 7638 thumbprint of the public JWK
+              from the validated request proof. A mismatch means the
+              presenter does not hold the key to which the token was bound
+              and the request must be rejected;
+            - authorize *scopes* exactly as for a Bearer token.
+
+        :param token: Unicode DPoP access token.
+        :param dpop_jkt: RFC 7638 thumbprint of the proof's public JWK.
+        :param scopes: List of scopes associated with the protected resource.
+        :param request: OAuthlib request.
+        :type request: oauthlib.common.Request
+        :rtype: True or False
+
+        Method is used by:
+            - Resource Endpoint (DPoP token type, RFC 9449)
+        """
+        raise NotImplementedError('Subclasses must implement this method.')
+
     def is_origin_allowed(self, client_id, origin, request, *args, **kwargs):
         """Indicate if the given origin is allowed to access the token endpoint
         via Cross-Origin Resource Sharing (CORS).  CORS is used by browser-based
